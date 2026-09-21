@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import argparse
+import math
 import numpy as np
 import pandas as pd
 import torch
@@ -464,6 +465,13 @@ def run_full_training(
     plots_dir = os.path.join(output_dir, "plots")
     os.makedirs(plots_dir, exist_ok=True)
 
+    steps_per_epoch = math.ceil(len(train_dataset) / batch_size)
+    total_training_steps = steps_per_epoch * num_epochs
+    warmup_steps = int(total_training_steps * 0.1)
+
+    print(f"Total training steps: {total_training_steps}")
+    print(f"Warmup steps: {warmup_steps}")
+
     training_args = TrainingArguments(
         output_dir=checkpoints_dir,
         num_train_epochs=num_epochs,
@@ -471,14 +479,13 @@ def run_full_training(
         per_device_eval_batch_size=32,
         learning_rate=lr,
         weight_decay=0.01,
-        warmup_ratio=0.1,
+        warmup_steps=warmup_steps,
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="macro_f1",
         greater_is_better=True,
         seed=42,
-        logging_dir=os.path.join(output_dir, "logs"),
         logging_steps=100,
         fp16=True,
         save_total_limit=3,
