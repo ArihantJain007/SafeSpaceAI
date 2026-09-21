@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import streamlit as st
 from transformers import AutoModelForSequenceClassification, DistilBertTokenizerFast
+from dotenv import load_dotenv
 
 # Optional Gemini SDK import with graceful fallback
 try:
@@ -22,6 +23,11 @@ BEST_MODEL_DIR = os.path.join(DISTILBERT_DIR, "best_model")
 TOKENIZER_DIR = os.path.join(DISTILBERT_DIR, "tokenizer")
 LABEL_MAPPING_PATH = os.path.join(DISTILBERT_DIR, "label_mapping.json")
 
+# Automatically load environment variables from project root .env file
+ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
+if os.path.exists(ENV_PATH):
+    load_dotenv(dotenv_path=ENV_PATH)
+
 DEFAULT_MAX_LENGTH = 256
 
 FALLBACK_CANONICAL_LABELS = [
@@ -33,6 +39,29 @@ FALLBACK_CANONICAL_LABELS = [
     "Stress",
     "Suicidal",
 ]
+
+LOCATION_NEUTRAL_CRISIS_TEXT = (
+    "If you may be in immediate danger or think you might hurt yourself, "
+    "contact your local emergency services or a crisis service available in your country, "
+    "and reach out to someone you trust who can stay with you."
+)
+
+TRIVIAL_FOLLOWUPS = {
+    "hi", "hello", "hey", "okay", "ok", "thanks", "thank you", "yes", "yeah", "yep",
+    "no", "nope", "what do you mean?", "what do you mean", "got it", "i see",
+    "k", "sure", "bye", "goodbye", "cool", "alright", "all right", "hmmm", "hmm"
+}
+
+
+def is_substantive_statement(text: str) -> bool:
+    """Returns True if input statement is a substantive mental-health expression to classify."""
+    cleaned = text.strip().lower()
+    if cleaned in TRIVIAL_FOLLOWUPS:
+        return False
+    words = cleaned.split()
+    if len(words) <= 3 and any(w in TRIVIAL_FOLLOWUPS for w in words):
+        return False
+    return True
 
 
 # -----------------------------------------------------------------------------
@@ -139,11 +168,8 @@ def classify_statement(
 # -----------------------------------------------------------------------------
 # Gemini Conversational Generation Logic
 # -----------------------------------------------------------------------------
-def get_gemini_api_key(user_key: str = "") -> str | None:
-    """Retrieves Gemini API key from user UI input, environment variables, or Streamlit secrets."""
-    if user_key and user_key.strip():
-        return user_key.strip()
-
+def get_gemini_api_key() -> str | None:
+    """Retrieves Gemini API key automatically from environment variables or Streamlit secrets."""
     env_key = os.environ.get("GEMINI_API_KEY")
     if env_key and env_key.strip():
         return env_key.strip()
@@ -159,13 +185,11 @@ def get_gemini_api_key(user_key: str = "") -> str | None:
 
 
 def generate_empathetic_response(
-    statement: str,
-    predicted_category: str,
-    confidence: float,
-    api_key: str | None = None,
+    messages: list[dict],
+    clf_result: dict | None,
 ) -> tuple[str | None, str | None]:
     """
-    Generates a compassionate, non-diagnostic response using Gemini API
+    Generates a compassionate, non-diagnostic multi-turn conversational response using Gemini API
     contextualized by DistilBERT's predicted category.
 
     Returns: (response_text, error_message)
@@ -173,37 +197,49 @@ def generate_empathetic_response(
     if not GENAI_AVAILABLE:
         return None, "The 'google-genai' SDK is not installed. Run 'pip install google-genai'."
 
-    key = get_gemini_api_key(api_key)
+    key = get_gemini_api_key()
     if not key:
         return None, (
-            "Gemini API Key is missing. Please set the 'GEMINI_API_KEY' environment variable, "
-            "add it to Streamlit secrets, or enter your API key in the sidebar."
+            "Gemini API Key is missing. Please ensure GEMINI_API_KEY is set in the project .env file "
+            "or Streamlit secrets."
         )
 
     try:
         client = genai.Client(api_key=key)
 
-        prompt = f"""
-User Statement: "{statement}"
-Classifier Context: DistilBERT predicted mental health category: "{predicted_category}" (Confidence: {confidence * 100:.1f}%).
-
-Instructions:
-- Write an empathetic, supportive, and compassionate response to the user statement.
-- Validate their feelings in the context of the identified mental health category ({predicted_category}).
-- DO NOT provide any medical diagnosis, clinical assessment, or treatment prescriptions.
-- DO NOT attempt to re-classify the statement or debate the classifier result.
-- Keep the tone warm, respectful, supportive, and conversational.
-- If the statement or category indicates crisis or self-harm ('Suicidal'), include compassionate crisis guidance: "If you may be in immediate danger or think you might hurt yourself, contact your local emergency services or a crisis service available in your country, and reach out to someone you trust who can stay with you."
-"""
+        pred_category = clf_result["predicted_label"] if clf_result else "General Mental Health Support"
+        confidence = clf_result["confidence"] if clf_result else 1.0
 
         system_instruction = (
             "You are an empathetic, compassionate AI Mental Health Support assistant. "
-            "You provide supportive, non-diagnostic conversational responses to help users feel heard and validated."
+            "You provide supportive, non-diagnostic conversational responses to help users feel heard and validated. "
+            "DO NOT provide any medical diagnosis, clinical assessment, or treatment prescriptions. "
+            "DO NOT attempt to re-classify the user statement or debate the classifier result. "
+            "Keep the tone warm, respectful, supportive, and conversational. "
+            f"If the user indicates crisis, self-harm, or suicidal ideation, include compassionate crisis guidance: '{LOCATION_NEUTRAL_CRISIS_TEXT}'"
         )
+
+        contents = []
+        for i, msg in enumerate(messages):
+            role = "user" if msg["role"] == "user" else "model"
+            text_content = msg["content"]
+
+            if i == 0 and msg["role"] == "user" and clf_result:
+                text_content = (
+                    f"[Classifier Context: The user's statement was categorized as '{pred_category}' "
+                    f"with {confidence * 100:.1f}% confidence.]\n\n{text_content}"
+                )
+
+            contents.append(
+                types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=text_content)]
+                )
+            )
 
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite",
-            contents=prompt,
+            contents=contents,
             config=types.GenerateContentConfig(
                 temperature=0.7,
                 system_instruction=system_instruction,
@@ -220,20 +256,51 @@ Instructions:
 
 
 # -----------------------------------------------------------------------------
-# Streamlit User Interface
+# Streamlit User Interface Helper
+# -----------------------------------------------------------------------------
+def render_classifier_card(container):
+    """Renders the Classifier Context card in the designated UI placeholder container."""
+    if st.session_state.clf_result:
+        clf = st.session_state.clf_result
+        pred_label = clf["predicted_label"]
+        confidence = clf["confidence"]
+        with container.container():
+            st.markdown(
+                f"""
+                <div class="result-card">
+                    <div class="category-title">CLASSIFIER CONTEXT</div>
+                    <div class="category-name">{pred_label}</div>
+                    <div class="confidence-badge">Confidence: {confidence * 100:.2f}%</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if pred_label == "Suicidal":
+                st.error(f"⚠️ **Crisis Support Notice:** {LOCATION_NEUTRAL_CRISIS_TEXT}")
+
+
+# -----------------------------------------------------------------------------
+# Main Application
 # -----------------------------------------------------------------------------
 def main():
     st.set_page_config(
         page_title="AI Mental Health Support Chatbot",
         page_icon="🧠",
         layout="centered",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
 
-    # Custom CSS for polished, modern layout
+    # Custom CSS for clean, modern aesthetic without sidebar
     st.markdown(
         """
         <style>
+        /* Hide sidebar toggle & sidebar completely */
+        [data-testid="stSidebar"] {
+            display: none !important;
+        }
+        [data-testid="collapsedControl"] {
+            display: none !important;
+        }
         .main-header {
             font-size: 2.2rem;
             font-weight: 700;
@@ -243,7 +310,7 @@ def main():
         .sub-header {
             font-size: 1.05rem;
             color: #64748B;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1.2rem;
         }
         .disclaimer-box {
             background-color: #F8FAFC;
@@ -252,94 +319,69 @@ def main():
             border-radius: 0.375rem;
             font-size: 0.9rem;
             color: #334155;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1.2rem;
         }
         .result-card {
             background: linear-gradient(135deg, #EFF6FF 0%, #F0F9FF 100%);
             border: 1px solid #BFDBFE;
             border-radius: 0.75rem;
-            padding: 1.25rem 1.5rem;
-            margin-top: 1rem;
-            margin-bottom: 1rem;
+            padding: 1rem 1.25rem;
+            margin-top: 0.5rem;
+            margin-bottom: 1.2rem;
         }
         .category-title {
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
             color: #1E40AF;
             font-weight: 600;
         }
         .category-name {
-            font-size: 1.8rem;
+            font-size: 1.5rem;
             font-weight: 800;
             color: #1E3A8A;
-            margin-top: 0.2rem;
+            margin-top: 0.1rem;
         }
         .confidence-badge {
             display: inline-block;
             background-color: #2563EB;
             color: white;
             font-weight: 600;
-            font-size: 0.95rem;
-            padding: 0.25rem 0.75rem;
+            font-size: 0.85rem;
+            padding: 0.2rem 0.65rem;
             border-radius: 9999px;
-            margin-top: 0.5rem;
-        }
-        .ai-response-box {
-            background-color: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 0.75rem;
-            padding: 1.25rem 1.5rem;
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
-            margin-bottom: 1.5rem;
-            color: #0F172A !important;
-            font-size: 1rem;
-            line-height: 1.6;
-        }
-        .ai-response-box *, .ai-response-box p, .ai-response-box div, .ai-response-box span {
-            color: #0F172A !important;
+            margin-top: 0.3rem;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # Sidebar Options & API Configuration
-    with st.sidebar:
-        st.header("⚙️ Configuration")
-        user_api_key = st.text_input(
-            "Gemini API Key (Optional)",
-            type="password",
-            help="Enter key if not set in GEMINI_API_KEY environment variable or Streamlit secrets.",
-        )
-        st.markdown("---")
-        st.header("ℹ️ Architecture")
-        st.markdown(
-            """
-            - **Classifier**: Fine-tuned `DistilBERT` (Local)
-            - **Response Generator**: `Gemini API`
-            - **Target Categories (7)**:
-              Anxiety, Bipolar, Depression, Normal, Personality disorder, Stress, Suicidal
-            """
-        )
-        st.caption("Phase 4 — Step 2: DistilBERT + Gemini Pipeline")
+    # Initialize Session State Variables
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "clf_result" not in st.session_state:
+        st.session_state.clf_result = None
 
-    # Header & Title
+    # Title & Subtitle
     st.markdown('<div class="main-header">🧠 AI Mental Health Support Chatbot</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Empathetic Conversational Support Powered by DistilBERT & Gemini</div>', unsafe_allow_html=True)
 
     # Non-diagnostic disclaimer
     st.markdown(
-        """
+        f"""
         <div class="disclaimer-box">
             🛡️ <strong>Non-Diagnostic Disclaimer:</strong> This application uses a fine-tuned NLP classifier 
             to understand user statements and generate compassionate, non-diagnostic responses. 
-            It is <strong>not</strong> a medical or diagnostic tool. If you may be in immediate danger or think you might hurt yourself, 
-            contact your local emergency services or a crisis service available in your country, and reach out to someone you trust who can stay with you.
+            It is <strong>not</strong> a medical or diagnostic tool. {LOCATION_NEUTRAL_CRISIS_TEXT}
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    # Placeholder container for Classifier Context card (Positioned between Disclaimer and Conversation)
+    card_container = st.empty()
+    render_classifier_card(card_container)
 
     # Load Model & Tokenizer with clear error handling
     try:
@@ -355,101 +397,65 @@ def main():
         st.error(f"❌ **Unexpected Error Loading Model:** {exc}")
         return
 
-    # User Input Section
-    st.subheader("Share Your Thoughts")
+    # Sample Preset Starter Buttons (only when conversation is empty)
+    preset_prompt = None
+    if not st.session_state.messages:
+        st.subheader("Start a Conversation")
+        s_col1, s_col2, s_col3 = st.columns(3)
+        if s_col1.button("Sample: Anxiety"):
+            preset_prompt = "I feel deeply anxious and overwhelmed by everything today."
+        elif s_col2.button("Sample: Depression"):
+            preset_prompt = "I have been feeling really sad, hopeless, and exhausted lately."
+        elif s_col3.button("Sample: Normal"):
+            preset_prompt = "I had a productive day at work and enjoyed spending time with my family."
 
-    sample_col1, sample_col2, sample_col3 = st.columns(3)
-    preset_text = ""
-    if sample_col1.button("Sample: Anxiety"):
-        preset_text = "I feel deeply anxious and overwhelmed by everything today."
-    elif sample_col2.button("Sample: Depression"):
-        preset_text = "I have been feeling really sad, hopeless, and exhausted lately."
-    elif sample_col3.button("Sample: Normal"):
-        preset_text = "I had a productive day at work and enjoyed spending time with my family."
+    # Render Conversation History using st.chat_message()
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
 
-    user_statement = st.text_area(
-        label="Input Text",
-        value=preset_text,
-        placeholder="Type how you are feeling or share your statement here...",
-        height=120,
-        label_visibility="collapsed",
-    )
+    # Clear Chat button (positioned after conversation history)
+    if st.session_state.messages:
+        col_space, col_clear_btn = st.columns([4, 1])
+        with col_clear_btn:
+            if st.button("🗑️ Clear Chat", type="secondary", use_container_width=True):
+                st.session_state.messages = []
+                st.session_state.clf_result = None
+                st.rerun()
 
-    col_btn, _ = st.columns([1, 3])
-    submitted = col_btn.button("💙 Send Statement", type="primary", use_container_width=True)
+    # Chat Input Box
+    user_input = st.chat_input("Share how you are feeling or ask a follow-up question...")
 
-    # Execute End-to-End Pipeline
-    if (submitted or preset_text) and user_statement.strip():
-        # Step 1: DistilBERT Classification
-        with st.spinner("Classifying statement with DistilBERT..."):
-            clf_result = classify_statement(user_statement, model, tokenizer, id2label)
+    # If a sample starter button was clicked, use it as the user input
+    if preset_prompt and not user_input:
+        user_input = preset_prompt
 
-        if clf_result:
-            pred_label = clf_result["predicted_label"]
-            confidence = clf_result["confidence"]
-            probs = clf_result["probabilities"]
+    if user_input:
+        # Append User Message to session state & render user chat bubble
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.write(user_input)
 
-            # Display Classification Context Card
-            st.markdown(
-                f"""
-                <div class="result-card">
-                    <div class="category-title">Classifier Context</div>
-                    <div class="category-name">{pred_label}</div>
-                    <div class="confidence-badge">Confidence: {confidence * 100:.2f}%</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        # Run DistilBERT classification for initial or new substantive statements
+        if st.session_state.clf_result is None or is_substantive_statement(user_input):
+            with st.spinner("Analyzing statement with DistilBERT..."):
+                st.session_state.clf_result = classify_statement(user_input, model, tokenizer, id2label)
+                # Immediately update the card container on the main page
+                render_classifier_card(card_container)
 
-            # High-risk crisis notice for Suicidal prediction (location-neutral)
-            if pred_label == "Suicidal":
-                st.error(
-                    "⚠️ **Crisis Support Notice:** If you may be in immediate danger or think you might hurt yourself, "
-                    "contact your local emergency services or a crisis service available in your country, "
-                    "and reach out to someone you trust who can stay with you."
-                )
-
-            # Step 2: Gemini Conversational Response Generation
-            with st.spinner("Generating empathetic response with Gemini..."):
+        # Generate & Render Assistant Response in the SAME interaction pass
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
                 response_text, error_msg = generate_empathetic_response(
-                    statement=user_statement,
-                    predicted_category=pred_label,
-                    confidence=confidence,
-                    api_key=user_api_key,
+                    messages=st.session_state.messages,
+                    clf_result=st.session_state.clf_result,
                 )
 
             if response_text:
-                st.subheader("💬 AI Support Response")
-                st.markdown(
-                    f"""
-                    <div class="ai-response-box">
-                        {response_text.replace('\n', '<br>')}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                st.write(response_text)
+                st.session_state.messages.append({"role": "assistant", "content": response_text})
             elif error_msg:
-                st.warning(f"⚠️ **Conversational Response Unavailable:** {error_msg}")
-
-            # Expandable Classification Details (fulfills requirement 11: non-intrusive probability breakdown)
-            with st.expander("📊 View Model Classification Details"):
-                sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
-                for cat_name, prob_val in sorted_probs:
-                    prob_pct = prob_val * 100
-                    is_top = (cat_name == pred_label)
-                    c_name, c_bar, c_pct = st.columns([2.5, 5, 1.5])
-                    with c_name:
-                        if is_top:
-                            st.markdown(f"**👉 {cat_name}**")
-                        else:
-                            st.write(cat_name)
-                    with c_bar:
-                        st.progress(float(prob_val))
-                    with c_pct:
-                        if is_top:
-                            st.markdown(f"**{prob_pct:.2f}%**")
-                        else:
-                            st.write(f"{prob_pct:.2f}%")
+                st.warning(f"⚠️ {error_msg}")
 
 
 if __name__ == "__main__":
