@@ -403,10 +403,133 @@ MyDrive/mental-healthbot/models/distilbert/
 
 The Google Drive copy is the persistent backup of the trained model and checkpoints.
 
-14. Current Results Summary
+---
+
+## 14. Phase 4 — MentalBERT Fine-Tuning & Evaluation
+
+### Implementation Summary
+
+- Model: `mental/mental-bert-base-uncased`
+- Module: `src/models/mental_bert_classifier.py`
+- Notebook: `notebooks/04_mental_bert_classifier.ipynb`
+- Architecture: BERT-base / MentalBERT
+- Task: 7-class mental-health text classification
+- Max sequence length: `256`
+- Epochs: `3`
+- Learning rate: `2e-5`
+- Per-device training batch size: `8` in the actual Colab run
+- Weight decay: `0.01`
+- Seed: `42`
+- Loss: class-weighted `CrossEntropyLoss`
+- Class weights: calculated from training labels only
+- Checkpoint selection: validation Macro F1
+- Test evaluation: held-out test set evaluated once after model selection
+- Training environment: Google Colab with Tesla T4 GPU
+- Transformers compatibility: `warmup_steps` was used with dynamic calculation as 10% of total training steps; `warmup_ratio` and `logging_dir` were not used because of the Colab Transformers API version
+
+### Dataset / Splits
+
+Use the existing Phase 2 splits without regeneration:
+
+- Train: `40,844`
+- Validation: `5,105`
+- Test: `5,106`
+
+Canonical class ordering:
+
+1. Anxiety
+2. Bipolar
+3. Depression
+4. Normal
+5. Personality disorder
+6. Stress
+7. Suicidal
+
+### MentalBERT Results
+
+Validation:
+- Macro F1: `0.8146602122`
+- Accuracy: `0.8374142997`
+
+Held-out Test:
+- Macro F1: `0.8008539552`
+- Accuracy: `0.8360752056`
+- Weighted F1: `0.8366941635`
+
+For concise reporting elsewhere, use:
+- Validation Macro F1: `0.8147`
+- Test Macro F1: `0.8009`
+- Test Accuracy: `0.8361`
+- Test Weighted F1: `0.8367`
+
+### Test Set Per-Class Metrics
+
+| Class | Precision | Recall | F1-Score | Support |
+| :--- | :--- | :--- | :--- | :--- |
+| Anxiety | 0.8753 | 0.8729 | 0.8741 | 362 |
+| Bipolar | 0.8595 | 0.8320 | 0.8455 | 250 |
+| Depression | 0.8151 | 0.7513 | 0.7819 | 1508 |
+| Normal | 0.9649 | 0.9595 | 0.9622 | 1604 |
+| Personality disorder | 0.6875 | 0.6180 | 0.6509 | 89 |
+| Stress | 0.7027 | 0.7948 | 0.7459 | 229 |
+| Suicidal | 0.7091 | 0.7857 | 0.7454 | 1064 |
+
+### Test Confusion Matrix Findings
+
+1. The largest cross-class confusion is between Depression and Suicidal:
+   - Actual Depression → Predicted Suicidal: `327`
+   - Actual Suicidal → Predicted Depression: `213`
+
+2. Personality disorder remains the lowest-F1 class:
+   - F1: `0.6509`
+   - Recall: `0.6180`
+   - Test support: `89`
+
+3. Normal has the highest F1:
+   - F1: `0.9622`
+
+4. Anxiety and Bipolar also show relatively strong test F1:
+   - Anxiety: `0.8741`
+   - Bipolar: `0.8455`
+
+### Benchmark Comparison
+
+| Model | Test Macro-F1 |
+| :--- | :--- |
+| LinearSVC + TF-IDF | 0.7165 |
+| DistilBERT | 0.7854 |
+| MentalBERT | 0.8009 |
+| MentalRoBERTa | Not yet trained |
+
+- MentalBERT test Macro-F1 is `0.0155` higher than the existing DistilBERT test Macro-F1.
+- MentalBERT test Macro-F1 is `0.0844` higher than the LinearSVC baseline.
+
+### Artifacts
+
+MentalBERT artifacts are stored under:
+
+`models/mental_bert/`
+
+including:
+- `checkpoints/`
+- `best_model/`
+- `tokenizer/`
+- `plots/`
+- `label_mapping.json`
+- `metadata.json`
+
+### Reproduction
+
+```bash
+python -m src.models.mental_bert_classifier --smoke-test
+```
+
+---
+
+## 15. Current Results Summary
 Final Model
 
-Fine-tuned DistilBERT
+Fine-tuned DistilBERT / MentalBERT
 
 Benchmark
 
@@ -417,28 +540,27 @@ Validation Macro F1: 0.7995
 Test Macro F1: 0.7854
 Test Accuracy: 0.8194
 Test Weighted F1: 0.8203
+
+Final MentalBERT Performance
+Validation Macro F1: 0.8147
+Test Macro F1: 0.8009
+Test Accuracy: 0.8361
+Test Weighted F1: 0.8367
+
 Conclusion
 
-Fine-tuning DistilBERT produced a substantial improvement over the classical LinearSVC baseline on the held-out test set.
+Fine-tuning DistilBERT and MentalBERT produced substantial improvements over the classical LinearSVC baseline on the held-out test set.
 
-The primary benchmark improved from:
+---
 
-0.7165 → 0.7854 Test Macro F1
+## 16. Next Phase
 
-This represents an absolute improvement of:
-
-+0.0689
-
-The current DistilBERT model is the selected classification model for the application.
-
-15. Next Phase
-
-PHASE 4 — STREAMLIT UI + GEMINI INTEGRATION
+PHASE 5 — STREAMLIT UI + GEMINI INTEGRATION
 
 Planned work:
 
 Build the Streamlit chat interface.
-Load the fine-tuned DistilBERT model and tokenizer.
+Load the trained classifier model and tokenizer.
 Accept user text input.
 Generate a mental-health category prediction and prediction probability.
 Pass the user statement and classifier context to the Gemini API.
@@ -451,7 +573,7 @@ User Statement
       ↓
 Streamlit UI
       ↓
-DistilBERT Classifier
+Classifier (MentalBERT / DistilBERT)
       ↓
 Category + Prediction Probability
       ↓
@@ -460,3 +582,4 @@ Gemini API
 Conversational Response
       ↓
 Streamlit UI
+
