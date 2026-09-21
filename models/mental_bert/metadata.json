@@ -1,0 +1,275 @@
+{
+  "model_name": "mental/mental-bert-base-uncased",
+  "max_length": 256,
+  "num_epochs": 3,
+  "batch_size": 8,
+  "learning_rate": 2e-05,
+  "random_state": 42,
+  "loss": "class_weighted_cross_entropy",
+  "class_weight_source": "train_labels_only",
+  "selection_metric": "validation_macro_f1",
+  "train_rows": 40844,
+  "validation_rows": 5105,
+  "test_rows": 5106,
+  "data_dir": "/content/Mental_health-bot/data/processed/splits",
+  "output_dir": "/content/Mental_health-bot/models/mental_bert",
+  "device": "Tesla T4",
+  "canonical_label_ordering": [
+    "Anxiety",
+    "Bipolar",
+    "Depression",
+    "Normal",
+    "Personality disorder",
+    "Stress",
+    "Suicidal"
+  ],
+  "class_weights": {
+    "Anxiety": 2.016191244125366,
+    "Bipolar": 2.91597056388855,
+    "Depression": 0.4837387800216675,
+    "Normal": 0.45478230714797974,
+    "Personality disorder": 8.14924144744873,
+    "Stress": 3.181492328643799,
+    "Suicidal": 0.685888946056366
+  },
+  "validation_best_metrics": {
+    "accuracy": 0.8374142997061704,
+    "macro_precision": 0.8184207799355923,
+    "macro_recall": 0.8155863462125187,
+    "macro_f1": 0.8146602121689916,
+    "weighted_precision": 0.8423642182860509,
+    "weighted_recall": 0.8374142997061704,
+    "weighted_f1": 0.8378575757167218,
+    "per_class": {
+      "Anxiety": {
+        "precision": 0.88268156424581,
+        "recall": 0.8753462603878116,
+        "f1": 0.8789986091794159,
+        "support": 361
+      },
+      "Bipolar": {
+        "precision": 0.8508064516129032,
+        "recall": 0.844,
+        "f1": 0.8473895582329317,
+        "support": 250
+      },
+      "Depression": {
+        "precision": 0.8244159758854559,
+        "recall": 0.7254641909814323,
+        "f1": 0.7717813051146385,
+        "support": 1508
+      },
+      "Normal": {
+        "precision": 0.9656464709556527,
+        "recall": 0.9644416718652526,
+        "f1": 0.9650436953807741,
+        "support": 1603
+      },
+      "Personality disorder": {
+        "precision": 0.8026315789473685,
+        "recall": 0.6777777777777778,
+        "f1": 0.7349397590361446,
+        "support": 90
+      },
+      "Stress": {
+        "precision": 0.7030075187969925,
+        "recall": 0.8130434782608695,
+        "f1": 0.7540322580645161,
+        "support": 230
+      },
+      "Suicidal": {
+        "precision": 0.6997558991049634,
+        "recall": 0.8090310442144873,
+        "f1": 0.7504363001745201,
+        "support": 1063
+      }
+    },
+    "confusion_matrix": [
+      [
+        316,
+        15,
+        10,
+        3,
+        2,
+        14,
+        1
+      ],
+      [
+        7,
+        211,
+        16,
+        2,
+        4,
+        8,
+        2
+      ],
+      [
+        9,
+        15,
+        1094,
+        15,
+        8,
+        9,
+        358
+      ],
+      [
+        6,
+        1,
+        2,
+        1546,
+        0,
+        41,
+        7
+      ],
+      [
+        7,
+        1,
+        14,
+        1,
+        61,
+        6,
+        0
+      ],
+      [
+        12,
+        5,
+        7,
+        18,
+        0,
+        187,
+        1
+      ],
+      [
+        1,
+        0,
+        184,
+        16,
+        1,
+        1,
+        860
+      ]
+    ]
+  },
+  "baseline_comparison": {
+    "linear_svc_validation_macro_f1": 0.7392,
+    "linear_svc_test_macro_f1": 0.7165
+  },
+  "test_metrics": {
+    "accuracy": 0.836075205640423,
+    "macro_precision": 0.802018111260584,
+    "macro_recall": 0.8020260550144496,
+    "macro_f1": 0.8008539552470444,
+    "weighted_precision": 0.8392441957508082,
+    "weighted_recall": 0.836075205640423,
+    "weighted_f1": 0.8366941635095245,
+    "per_class": {
+      "Anxiety": {
+        "precision": 0.8753462603878116,
+        "recall": 0.8729281767955801,
+        "f1": 0.8741355463347165,
+        "support": 362
+      },
+      "Bipolar": {
+        "precision": 0.859504132231405,
+        "recall": 0.832,
+        "f1": 0.8455284552845529,
+        "support": 250
+      },
+      "Depression": {
+        "precision": 0.8151079136690648,
+        "recall": 0.7513262599469496,
+        "f1": 0.7819185645272602,
+        "support": 1508
+      },
+      "Normal": {
+        "precision": 0.9648902821316614,
+        "recall": 0.9594763092269327,
+        "f1": 0.9621756798999688,
+        "support": 1604
+      },
+      "Personality disorder": {
+        "precision": 0.6875,
+        "recall": 0.6179775280898876,
+        "f1": 0.650887573964497,
+        "support": 89
+      },
+      "Stress": {
+        "precision": 0.7027027027027027,
+        "recall": 0.7947598253275109,
+        "f1": 0.7459016393442623,
+        "support": 229
+      },
+      "Suicidal": {
+        "precision": 0.7090754877014419,
+        "recall": 0.7857142857142857,
+        "f1": 0.7454302273740526,
+        "support": 1064
+      }
+    },
+    "confusion_matrix": [
+      [
+        316,
+        9,
+        4,
+        10,
+        7,
+        15,
+        1
+      ],
+      [
+        11,
+        208,
+        13,
+        3,
+        6,
+        8,
+        1
+      ],
+      [
+        7,
+        11,
+        1133,
+        16,
+        7,
+        7,
+        327
+      ],
+      [
+        7,
+        1,
+        6,
+        1539,
+        1,
+        40,
+        10
+      ],
+      [
+        8,
+        9,
+        10,
+        1,
+        55,
+        6,
+        0
+      ],
+      [
+        12,
+        3,
+        11,
+        13,
+        4,
+        182,
+        4
+      ],
+      [
+        0,
+        1,
+        213,
+        13,
+        0,
+        1,
+        836
+      ]
+    ]
+  }
+}

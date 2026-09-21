@@ -1,0 +1,20 @@
+{
+  "label2id": {
+    "Anxiety": 0,
+    "Bipolar": 1,
+    "Depression": 2,
+    "Normal": 3,
+    "Personality disorder": 4,
+    "Stress": 5,
+    "Suicidal": 6
+  },
+  "id2label": {
+    "0": "Anxiety",
+    "1": "Bipolar",
+    "2": "Depression",
+    "3": "Normal",
+    "4": "Personality disorder",
+    "5": "Stress",
+    "6": "Suicidal"
+  }
+}
