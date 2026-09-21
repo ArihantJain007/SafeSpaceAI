@@ -407,7 +407,7 @@ def run_full_training(
     data_dir="data/processed/splits",
     output_dir="models/mental_roberta",
     num_epochs=3,
-    batch_size=16,
+    batch_size=8,
     lr=2e-5,
     resume=False,
 ):
@@ -603,7 +603,7 @@ if __name__ == "__main__":
     parser.add_argument("--data-dir", default="data/processed/splits", help="Directory containing CSV splits")
     parser.add_argument("--output-dir", default="models/mental_roberta", help="Output directory for model artifacts")
     parser.add_argument("--num-epochs", type=int, default=3, help="Number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=16, help="Per-device training batch size")
+    parser.add_argument("--batch-size", type=int, default=8, help="Per-device training batch size")
     parser.add_argument("--lr", type=float, default=2e-5, help="Learning rate")
 
     args = parser.parse_args()
